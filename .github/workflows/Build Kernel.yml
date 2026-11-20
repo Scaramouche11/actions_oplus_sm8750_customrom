@@ -442,32 +442,58 @@ jobs:
         working-directory: kernel_workspace/common
         run: |
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
-          FIX_DIR="../wildkernels_patches/next/susfs_fix_patches/v2.2.0"
+          LATEST_VER=$(ls -1 ../wildkernels_patches/next/susfs_fix_patches/ 2>/dev/null | sort -V | tail -n 1)
+          [ -z "$LATEST_VER" ] && LATEST_VER="v2.2.0"
+          FIX_DIR="../wildkernels_patches/next/susfs_fix_patches/${LATEST_VER}"
 
           echo "📦 [1/3] Applying 10_enable_susfs_for_ksu (KSUN-specific rejects are expected)..."
           ( cd KernelSU-Next && patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true )
 
-          echo "📦 [2/3] Applying WildKernels KSUN fix patches (v2.2.0)..."
-          for p in \
-            fix_Kbuild.patch \
-            fix_init.c.patch \
-            fix_kernel_umount.c.patch \
-            fix_setuid_hook.c.patch \
-            fix_sucompat.c.patch \
-            fix_supercall.c.patch \
-            ksu_toolkit.patch \
-            overwrite_hook_mode.patch; do
-            if [ -f "$FIX_DIR/$p" ]; then
-              ( cd KernelSU-Next && patch -p1 --forward < "../$FIX_DIR/$p" ) \
-                && echo "  ✅ $p" || echo "  ⚠️ $p (skipped/conflict)"
-            else
-              echo "  ⚠️ $p not found"
+          echo "📦 [2/3] Applying WildKernels KSUN fix patches (${LATEST_VER})..."
+          if [ -d "$FIX_DIR" ]; then
+            for p in "$FIX_DIR"/*.patch; do
+              [ -f "$p" ] || continue
+              patch_name=$(basename "$p")
+              ( cd KernelSU-Next && patch -p1 --forward < "../$p" ) \
+                && echo "  ✅ $patch_name" || echo "  ⚠️ $patch_name (skipped/conflict)"
+            done
+          else
+            echo "  ⚠️ Fix directory $FIX_DIR not found"
+          fi
+
+          # 兜底修复：若 ksu_late_loaded 被引用但未在头文件中声明或未定义，自动补全
+          if grep -rq "ksu_late_loaded" KernelSU-Next/kernel/ 2>/dev/null; then
+            KSU_H=$(find KernelSU-Next/kernel -name "ksu.h" | head -n 1)
+            if [ -n "$KSU_H" ] && ! grep -q "ksu_late_loaded" "$KSU_H"; then
+              sed -i '$s/#endif/extern bool ksu_late_loaded;\n#endif/' "$KSU_H"
+              echo "  🔧 Injected extern bool ksu_late_loaded into $KSU_H"
             fi
-          done
+            if ! grep -rqE "bool[[:space:]]+ksu_late_loaded" KernelSU-Next/kernel/; then
+              INIT_C=$(find KernelSU-Next/kernel -name "init.c" | head -n 1)
+              if [ -n "$INIT_C" ]; then
+                sed -i '0,/#include/s/.*/&\nbool ksu_late_loaded = false;/' "$INIT_C"
+                echo "  🔧 Defined bool ksu_late_loaded = false in $INIT_C"
+              fi
+            fi
+          fi
 
-          echo "📦 [3/3] Applying 50_add_susfs kernel patch..."
-          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch
-
+          echo "📦 [3/3] Applying pre-patch fixups & 50_add_susfs kernel patch..."
+          if ! grep -qxF $'\tunsigned int nr_subpages = __PAGE_SIZE / PAGE_SIZE;' ./fs/proc/task_mmu.c; then
+            sed -i -e '/int ret = 0, copied = 0;/a \\tunsigned int nr_subpages \= __PAGE_SIZE \/ PAGE_SIZE;' \
+                   -e '/int ret = 0, copied = 0;/a \\tpagemap_entry_t \*res = NULL;' ./fs/proc/task_mmu.c
+          fi
+          if ! grep -qxF '#include <linux/dma-buf.h>' ./fs/proc/base.c; then
+            sed -i '/#include <linux\/cpufreq_times.h>/a #include <linux\/dma-buf.h>' ./fs/proc/base.c
+          fi
+          if ! grep -qxF '#include <linux/zswap.h>' ./mm/memory.c; then
+            sed -i '/#include <linux\/sched\/sysctl\.h>/a #include <linux\/zswap.h>' ./mm/memory.c
+          fi
+          if grep -qF 'if (vma->vm_end > last_vma_end)' ./fs/proc/task_mmu.c \
+             && ! grep -qF 'if (vma->vm_end > last_vma_end) {' ./fs/proc/task_mmu.c; then
+            perl -i -0pe 's/\t\t\tif \(vma->vm_end > last_vma_end\)\n\t\t\t\tsmap_gather_stats\(vma, &mss, last_vma_end\);/\t\t\tif (vma->vm_end > last_vma_end) {\n\t\t\t\tsmap_gather_stats(vma, \&mss, last_vma_end);\n\t\t\t\tlast_vma_end = vma->vm_end;\n\t\t\t}/' ./fs/proc/task_mmu.c
+          fi
+          patch -p1 --forward < 50_add_susfs_in_gki-android15-6.6.patch || true
+          
       - name: ⚙️ Configure Kernel Options
         run: |
           cd kernel_workspace
