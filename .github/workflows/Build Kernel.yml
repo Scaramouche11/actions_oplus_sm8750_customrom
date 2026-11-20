@@ -10,7 +10,7 @@ env:
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
   KERNEL_NAME: 'android15-8-g29d86c5fc9dd-abogki428889875-4k'
-  KERNEL_FULL_VERSION: '6.6.144'
+  KERNEL_FULL_VERSION: '6.6.89'
 
 on:
   workflow_dispatch:
@@ -198,10 +198,10 @@ jobs:
             libelf-dev dos2unix pahole cmake &
 
           echo "Cloning source repository..."
-          curl -L https://github.com/palazik/android_kernel_common_oneplus_sm8750/archive/refs/heads/${{ env.KERNEL_FULL_VERSION }}_oneplus13_coloros16.zip \
+          curl -fL "https://github.com/cctv18/android_kernel_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip" \
             -o common.zip &&
           unzip -q common.zip &&
-          mv android_kernel_common_oneplus_sm8750-* common &&
+          mv android_kernel_*oneplus_sm8750-* common &&
           rm -f common.zip &
 
           if [ "${{ steps.clang-cache.outputs.cache-hit }}" != "true" ]; then
@@ -463,6 +463,10 @@ jobs:
             rm -f KernelSU-Next/kernel/hook/syscall_event_bridge.c
             sed -i '/syscall_event_bridge\.o/d' KernelSU-Next/kernel/Kbuild KernelSU-Next/kernel/Makefile 2>/dev/null || true
             echo "  🔧 Removed incompatible untracked syscall_event_bridge.c"
+          fi
+          if git -C KernelSU-Next ls-files --error-unmatch kernel/feature/sucompat.c >/dev/null 2>&1; then
+            git -C KernelSU-Next checkout HEAD -- kernel/feature/sucompat.c
+            echo "  🔧 Restored tracked sucompat.c from HEAD"
           fi
 
           # 兜底修复 2：若 ksu_late_loaded 被引用但未在头文件中声明或未定义，自动补全
