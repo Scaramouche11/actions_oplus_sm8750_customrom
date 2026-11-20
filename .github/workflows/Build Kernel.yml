@@ -10,7 +10,7 @@ env:
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
   KERNEL_NAME: 'android15-8-g29d86c5fc9dd-abogki428889875-4k'
-  KERNEL_FULL_VERSION: '6.6.144'
+  KERNEL_FULL_VERSION: '6.6.89'
 
 on:
   workflow_dispatch:
@@ -198,7 +198,7 @@ jobs:
             libelf-dev dos2unix pahole cmake &
 
           echo "Cloning source repository..."
-          curl -L https://github.com/palazik/android_kernel_common_oneplus_sm8750/archive/refs/heads/${{ env.KERNEL_FULL_VERSION }}_oneplus13_coloros16.zip \
+          curl -fL "https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_16.0.0_oneplus_13_6.6.89.zip" \
             -o common.zip &&
           unzip -q common.zip &&
           mv android_kernel_common_oneplus_sm8750-* common &&
@@ -370,8 +370,8 @@ jobs:
         if: inputs.ksu_type == 'KernelSU Next'
         run: |
           cd kernel_workspace/common
-          echo "🛠️ Setting up KernelSU-Next (next branch)..."
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          echo "🛠️ Setting up KernelSU-Next (dev branch)..."
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
           cd KernelSU-Next
           KSU_GIT_VERSION=$(git rev-list --count HEAD)
           export KSUVER=$(expr 10000 + $KSU_GIT_VERSION + 200)
@@ -458,9 +458,9 @@ jobs:
                 && echo "  ✅ $patch_name" || echo "  ⚠️ $patch_name (skipped/conflict)"
             done
             # 兜底修复：若 adb_root.h 已升级为双参数接口而 hook_manager.c 仍残留单参数调用，自动兼容处理
-          if grep -q "ksu_adb_root_handle_execveat(const char" KernelSU-Next/kernel/feature/adb_root.h 2>/dev/null; then
-            sed -i 's/ksu_adb_root_handle_execveat(regs)/0/g' KernelSU-Next/kernel/hook/hook_manager.c
-          fi
+            if [ -f KernelSU-Next/kernel/hook/hook_manager.c ] && grep -q "ksu_adb_root_handle_execveat(const char" KernelSU-Next/kernel/feature/adb_root.h 2>/dev/null; then
+              sed -i 's/ksu_adb_root_handle_execveat(regs)/0/g' KernelSU-Next/kernel/hook/hook_manager.c
+            fi
           else
             echo "  ⚠️ Fix directory $FIX_DIR not found"
           fi
