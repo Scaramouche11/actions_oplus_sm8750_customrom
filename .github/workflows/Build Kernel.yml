@@ -497,6 +497,9 @@ jobs:
             perl -i -0pe 's/\t\t\tif \(vma->vm_end > last_vma_end\)\n\t\t\t\tsmap_gather_stats\(vma, &mss, last_vma_end\);/\t\t\tif (vma->vm_end > last_vma_end) {\n\t\t\t\tsmap_gather_stats(vma, \&mss, last_vma_end);\n\t\t\t\tlast_vma_end = vma->vm_end;\n\t\t\t}/' ./fs/proc/task_mmu.c
           fi
           patch -p1 --forward < 50_add_susfs_in_gki-android15-6.6.patch || true
+          # 还原被旧版修复补丁覆盖的钩子分发文件，以匹配 KernelSU-Next dev 最新 5 参数 sucompat 与 2 参数 adb_root 接口
+          git -C KernelSU-Next checkout -- kernel/hook/syscall_event_bridge.c 2>/dev/null || true
+          git -C KernelSU-Next checkout -- kernel/hook/hook_manager.c 2>/dev/null || true          
           
       - name: ⚙️ Configure Kernel Options
         run: |
