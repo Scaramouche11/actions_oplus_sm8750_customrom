@@ -945,7 +945,7 @@ jobs:
 
       - name: 🔨 Build Kernel
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends libxml2
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libxml2-16 || true
           if [ ! -e /usr/lib/x86_64-linux-gnu/libxml2.so.2 ]; then
             LIBXML2_SO=$(find /usr/lib/x86_64-linux-gnu -maxdepth 1 -name "libxml2.so.*" | head -n 1)
             [ -n "$LIBXML2_SO" ] && sudo ln -sf "$LIBXML2_SO" /usr/lib/x86_64-linux-gnu/libxml2.so.2
