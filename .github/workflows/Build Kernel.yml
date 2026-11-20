@@ -423,6 +423,41 @@ jobs:
           echo "📦 Applying 50_ with --forward (by-design rejects skip cleanly)..."
           patch -p1 --forward < 50_add_susfs_in_gki-android15-6.6.patch || true
 
+          # 兜底修复：SukiSU-Ultra 未定义 SUSFS v2.4.0 新增的 preinit 钩子时，自动在 fs/exec.c 中转为内联空桩
+          python3 - << 'PYEOF'
+          import glob, re
+
+          symbols = ["ksu_setup_preinit_file", "ksu_preinit_handle_post_execveat"]
+          ksu_files = glob.glob("KernelSU/**/*.c", recursive=True)
+          ksu_code = "\n".join(open(f, errors="ignore").read() for f in ksu_files)
+
+          for sym in symbols:
+              if re.search(rf'\b{sym}\s*\(', ksu_code):
+                  continue
+              stubbed = False
+              for path in ["fs/exec.c"] + glob.glob("include/linux/susfs*.h"):
+                  try:
+                      txt = open(path).read()
+                  except FileNotFoundError:
+                      continue
+                  pattern = re.compile(rf'extern\s+([^;]+?)\b({sym})\s*\(([^;]*?)\)\s*;', re.DOTALL)
+                  def repl(m):
+                      ret = m.group(1).strip()
+                      body = "{}" if ret == "void" else "{ return 0; }"
+                      return f"static inline {ret} {m.group(2)}({m.group(3)}) {body}"
+                  new_txt, count = pattern.subn(repl, txt)
+                  if count > 0:
+                      open(path, "w").write(new_txt)
+                      stubbed = True
+                      print(f"🔧 Stubbed {sym} in {path}")
+              if not stubbed:
+                  txt = open("fs/exec.c").read()
+                  txt = re.sub(rf'(^[ \t]*){sym}\s*\([^;]*?\)\s*;', r'\1(void)0;', txt, flags=re.MULTILINE | re.DOTALL)
+                  txt = re.sub(rf'\b{sym}\s*\([^;]*?\)', '0', txt, flags=re.DOTALL)
+                  open("fs/exec.c", "w").write(txt)
+                  print(f"🔧 Neutralized {sym} call in fs/exec.c")
+          PYEOF
+
           grep -q "SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))" fs/proc/task_mmu.c \
             || { echo "❌ SUS_MAP guard missing — real failure"; exit 1; }
           echo "✅ SUSFS applied (fatalcoder method)"
