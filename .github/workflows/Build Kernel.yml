@@ -945,6 +945,12 @@ jobs:
 
       - name: 🔨 Build Kernel
         run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libxml2
+          if [ ! -e /usr/lib/x86_64-linux-gnu/libxml2.so.2 ]; then
+            LIBXML2_SO=$(find /usr/lib/x86_64-linux-gnu -maxdepth 1 -name "libxml2.so.*" | head -n 1)
+            [ -n "$LIBXML2_SO" ] && sudo ln -sf "$LIBXML2_SO" /usr/lib/x86_64-linux-gnu/libxml2.so.2
+            sudo ldconfig
+          fi
           WORKDIR="$(pwd)"
           export MAP="-fdebug-prefix-map=${GITHUB_WORKSPACE}=. -fmacro-prefix-map=${GITHUB_WORKSPACE}=. -ffile-prefix-map=${GITHUB_WORKSPACE}=."
           export PATH="$WORKDIR/kernel_workspace/zyc-clang/bin:$WORKDIR/kernel_workspace/build-tools/linux-x86/bin:$PATH"
@@ -952,7 +958,6 @@ jobs:
           echo "Clang: $($CLANG_DIR/clang --version | head -n 1)"
           echo "LLD:   $($CLANG_DIR/ld.lld --version | head -n 1)"
           pahole --version 2>/dev/null || echo "Pahole: Not Installed"
-
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           export CCACHE_LOGFILE="${{ github.workspace }}/kernel_workspace/ccache.log"
           export CCACHE_IS_KERNEL_COMPILING=true
