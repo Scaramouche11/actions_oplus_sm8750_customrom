@@ -427,16 +427,6 @@ jobs:
             || { echo "❌ SUS_MAP guard missing — real failure"; exit 1; }
           echo "✅ SUSFS applied (fatalcoder method)"
 
-      - name: 📦 Apply SUSFS (KernelSU)
-        if: inputs.SUSFS && inputs.ksu_type == 'KernelSU'
-        working-directory: kernel_workspace/common
-        run: |
-          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-          echo "📦 Enabling SUSFS inside KernelSU..."
-          ( cd KernelSU && patch -p1 < 10_enable_susfs_for_ksu.patch )
-          echo "📦 Applying SUSFS kernel patch..."
-          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch
-
       - name: 📦 Apply SUSFS (KernelSU Next)
         if: inputs.SUSFS && inputs.ksu_type == 'KernelSU Next'
         working-directory: kernel_workspace/common
@@ -457,15 +447,25 @@ jobs:
               ( cd KernelSU-Next && patch -p1 --forward < "../$p" ) \
                 && echo "  ✅ $patch_name" || echo "  ⚠️ $patch_name (skipped/conflict)"
             done
-            # 兜底修复：若 adb_root.h 已升级为双参数接口而 hook_manager.c 仍残留单参数调用，自动兼容处理
-            if [ -f KernelSU-Next/kernel/hook/hook_manager.c ] && grep -q "ksu_adb_root_handle_execveat(const char" KernelSU-Next/kernel/feature/adb_root.h 2>/dev/null; then
-              sed -i 's/ksu_adb_root_handle_execveat(regs)/0/g' KernelSU-Next/kernel/hook/hook_manager.c
-            fi
           else
             echo "  ⚠️ Fix directory $FIX_DIR not found"
           fi
 
-          # 兜底修复：若 ksu_late_loaded 被引用但未在头文件中声明或未定义，自动补全
+          # 兜底修复 1：兼容新版 KernelSU-Next dev 分支的 hook_manager 与 syscall_event_bridge 结构
+          if grep -q "ksu_adb_root_handle_execveat(const char" KernelSU-Next/kernel/feature/adb_root.h 2>/dev/null; then
+            [ -f KernelSU-Next/kernel/hook/hook_manager.c ] && \
+              sed -i 's/ksu_adb_root_handle_execveat(regs)/0/g' KernelSU-Next/kernel/hook/hook_manager.c
+          fi
+          if git -C KernelSU-Next ls-files --error-unmatch kernel/hook/syscall_event_bridge.c >/dev/null 2>&1; then
+            git -C KernelSU-Next checkout HEAD -- kernel/hook/syscall_event_bridge.c
+            echo "  🔧 Restored tracked syscall_event_bridge.c from HEAD"
+          elif [ -f KernelSU-Next/kernel/hook/syscall_event_bridge.c ]; then
+            rm -f KernelSU-Next/kernel/hook/syscall_event_bridge.c
+            sed -i '/syscall_event_bridge\.o/d' KernelSU-Next/kernel/Kbuild KernelSU-Next/kernel/Makefile 2>/dev/null || true
+            echo "  🔧 Removed incompatible untracked syscall_event_bridge.c"
+          fi
+
+          # 兜底修复 2：若 ksu_late_loaded 被引用但未在头文件中声明或未定义，自动补全
           if grep -rq "ksu_late_loaded" KernelSU-Next/kernel/ 2>/dev/null; then
             KSU_H=$(find KernelSU-Next/kernel -name "ksu.h" | head -n 1)
             if [ -n "$KSU_H" ] && ! grep -q "ksu_late_loaded" "$KSU_H"; then
@@ -496,10 +496,7 @@ jobs:
              && ! grep -qF 'if (vma->vm_end > last_vma_end) {' ./fs/proc/task_mmu.c; then
             perl -i -0pe 's/\t\t\tif \(vma->vm_end > last_vma_end\)\n\t\t\t\tsmap_gather_stats\(vma, &mss, last_vma_end\);/\t\t\tif (vma->vm_end > last_vma_end) {\n\t\t\t\tsmap_gather_stats(vma, \&mss, last_vma_end);\n\t\t\t\tlast_vma_end = vma->vm_end;\n\t\t\t}/' ./fs/proc/task_mmu.c
           fi
-          patch -p1 --forward < 50_add_susfs_in_gki-android15-6.6.patch || true
-          # 还原被旧版修复补丁覆盖的钩子分发文件，以匹配 KernelSU-Next dev 最新 5 参数 sucompat 与 2 参数 adb_root 接口
-          git -C KernelSU-Next checkout -- kernel/hook/syscall_event_bridge.c 2>/dev/null || true
-          git -C KernelSU-Next checkout -- kernel/hook/hook_manager.c 2>/dev/null || true          
+          patch -p1 --forward < 50_add_susfs_in_gki-android15-6.6.patch || true      
           
       - name: ⚙️ Configure Kernel Options
         run: |
