@@ -370,8 +370,8 @@ jobs:
         if: inputs.ksu_type == 'KernelSU Next'
         run: |
           cd kernel_workspace/common
-          echo "🛠️ Setting up KernelSU-Next (legacy branch)..."
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
+          echo "🛠️ Setting up KernelSU-Next (next branch)..."
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           cd KernelSU-Next
           KSU_GIT_VERSION=$(git rev-list --count HEAD)
           export KSUVER=$(expr 10000 + $KSU_GIT_VERSION + 200)
@@ -457,6 +457,10 @@ jobs:
               ( cd KernelSU-Next && patch -p1 --forward < "../$p" ) \
                 && echo "  ✅ $patch_name" || echo "  ⚠️ $patch_name (skipped/conflict)"
             done
+            # 兜底修复：若 adb_root.h 已升级为双参数接口而 hook_manager.c 仍残留单参数调用，自动兼容处理
+          if grep -q "ksu_adb_root_handle_execveat(const char" KernelSU-Next/kernel/feature/adb_root.h 2>/dev/null; then
+            sed -i 's/ksu_adb_root_handle_execveat(regs)/0/g' KernelSU-Next/kernel/hook/hook_manager.c
+          fi
           else
             echo "  ⚠️ Fix directory $FIX_DIR not found"
           fi
